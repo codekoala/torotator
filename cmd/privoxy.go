@@ -11,7 +11,7 @@ import (
 	"github.com/uber-go/zap"
 )
 
-const CFG_TPL = `
+const PRIVOXY_TPL = `
 user-manual /usr/share/doc/privoxy/user-manual/
 confdir /etc/privoxy
 logdir %s
@@ -65,7 +65,7 @@ func NewPrivoxy(ctx context.Context, tor *Tor) (p *Privoxy, err error) {
 			zap.Uint("port", p.port),
 			zap.Uint("tor", tor.port))
 
-		p.dir = fmt.Sprintf("/tmp/rotating-tor-proxy/privoxy-%d", p.port)
+		p.dir = fmt.Sprintf("/tmp/torotator/privoxy-%d", p.port)
 		p.pid = path.Join(p.dir, "privoxy.pid")
 		p.conf = path.Join(p.dir, "privoxy.conf")
 
@@ -103,7 +103,7 @@ func (p *Privoxy) MakeDirs() (err error) {
 	}
 	defer f.Close()
 
-	f.WriteString(fmt.Sprintf(CFG_TPL, p.dir, p.port, p.tor.port))
+	f.WriteString(fmt.Sprintf(PRIVOXY_TPL, p.dir, p.port, p.tor.port))
 
 	return nil
 }
@@ -137,7 +137,7 @@ func (p *Privoxy) Close() (err error) {
 
 	defer func() {
 		if err = os.RemoveAll(p.dir); err != nil {
-			p.log.Error("failed to data directory", zap.String("path", p.conf), zap.Error(err))
+			p.log.Error("failed to data directory", zap.String("path", p.dir), zap.Error(err))
 		}
 	}()
 

@@ -33,14 +33,20 @@ func main() {
 	ctx := SignalContext()
 	wg := new(sync.WaitGroup)
 
-	Rotate(ctx, wg)
+	ha, err := NewHAProxy(ctx, 8080)
+	if err != nil {
+		log.Fatal("failed to start HAproxy", zap.Error(err))
+	}
+	go ha.Wait()
+
+	Rotate(ctx, wg, ha)
 
 	// clean up
 	wg.Wait()
 	log.Info("done")
 }
 
-func Rotate(ctx context.Context, wg *sync.WaitGroup) {
+func Rotate(ctx context.Context, wg *sync.WaitGroup, ha *HAProxy) {
 	// Used to limit the number of running proxies. This is separate from wg because wg is unbounded.
 	c := make(chan bool, TOR_COUNT)
 
@@ -55,7 +61,7 @@ func Rotate(ctx context.Context, wg *sync.WaitGroup) {
 			c <- true
 			wg.Add(1)
 			go func() {
-				RunProxy(ctx)
+				RunProxy(ctx, ha)
 
 				wg.Done()
 				<-c
@@ -64,7 +70,7 @@ func Rotate(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-func RunProxy(ctx context.Context) {
+func RunProxy(ctx context.Context, ha *HAProxy) {
 	// create a new tor/privoxy pair
 	tor, err := NewTor(ctx)
 	if err != nil {
@@ -85,10 +91,13 @@ func RunProxy(ctx context.Context) {
 	_log := log.With(zap.Uint("tor", tor.port), zap.Uint("privoxy", privoxy.port))
 	_log.Info("proxy started")
 
+	ha.AddBackend(privoxy.port)
+
 	// let the processes run until they terminate
 	go tor.Wait()
 	go privoxy.Wait()
 
+	// TODO periodically check that this proxy is still functional
 	// wait for any of the following events to occur
 	select {
 	case <-ctx.Done():

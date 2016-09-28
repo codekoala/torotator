@@ -32,7 +32,7 @@ func NewTor(ctx context.Context) (t *Tor, err error) {
 
 		t.port = portPlz()
 		t.log = log.With(zap.String("service", "tor"), zap.Uint("port", t.port))
-		t.dir = fmt.Sprintf("/tmp/rotating-tor-proxy/tor-%d", t.port)
+		t.dir = fmt.Sprintf("/tmp/torotator/tor-%d", t.port)
 		t.pid = path.Join(t.dir, "tor.pid")
 
 		t.MakeDirs()
