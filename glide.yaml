@@ -1,0 +1,3 @@
+package: github.com/codekoala/torotator
+import:
+- package: github.com/uber-go/zap
