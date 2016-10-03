@@ -1,5 +1,5 @@
 IMG := codekoala/torotator
-VERSION ?= $(shell sh -c "git describe --long | sed 's/\([^-]*-g\)/r\1/;s/-/./g'" )
+VERSION ?= $(shell /bin/sh -c "git describe --long | sed 's/\([^-]*-g\)/r\1/;s/-/./g'" )
 
 build:
 	go build -ldflags '-s -X main.VERSION=$(VERSION)' -o torotator ./cmd
