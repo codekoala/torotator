@@ -43,7 +43,7 @@ type Privoxy struct {
 	log  zap.Logger
 	tor  *Tor
 	cmd  *Cmd
-	port uint
+	port int
 	dir  string
 	pid  string
 	conf string
@@ -62,8 +62,8 @@ func NewPrivoxy(ctx context.Context, tor *Tor) (p *Privoxy, err error) {
 
 		p.port = portPlz()
 		p.log = log.With(zap.String("service", "privoxy"),
-			zap.Uint("port", p.port),
-			zap.Uint("tor", tor.port))
+			zap.Int("port", p.port),
+			zap.Int("tor", tor.port))
 
 		p.dir = fmt.Sprintf("/tmp/torotator/privoxy-%d", p.port)
 		p.pid = path.Join(p.dir, "privoxy.pid")

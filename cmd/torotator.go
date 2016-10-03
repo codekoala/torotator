@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"os"
 	"os/signal"
 	"sync"
@@ -11,19 +12,23 @@ import (
 	"github.com/uber-go/zap"
 )
 
-const (
-	VERSION          = "0.1.0"
-	TOR_COUNT        = 3
-	PORT_RANGE_START = 30000
-	HAPROXY_CFG      = "/etc/haproxy.cfg"
-	MAX_PROXY_TIME   = 900
-	TEST_URL         = "http://echoip.com"
+const VERSION = "0.1.0"
+
+var (
+	proxyPort      = flag.Int("p", 8080, "HTTP proxy port")
+	torCount       = flag.Int("c", 3, "number of Tor nodes to use")
+	portRangeStart = flag.Int("s", 30000, "starting port for proxy usage")
+	maxProxyTime   = flag.Int("m", 900, "maximum time (in seconds) a proxy should remain online before being recycled")
+	circuitTime    = flag.Int("t", 120, "maximum time (in seconds) a Tor node should be online before recircuiting")
+	statsPort      = flag.Int("stats", 0, "serve HAProxy stats on this port")
+
+	log zap.Logger
 )
 
-var log zap.Logger
-
 func main() {
-	ports = make(map[uint]uint)
+	flag.Parse()
+
+	ports = make(map[int]int)
 
 	log = zap.New(zap.NewJSONEncoder(zap.RFC3339Formatter("time")))
 	log.Info("rotating tor proxy", zap.String("version", VERSION))
@@ -31,7 +36,7 @@ func main() {
 	ctx := SignalContext()
 	wg := new(sync.WaitGroup)
 
-	ha, err := NewHAProxy(ctx, 8080)
+	ha, err := NewHAProxy(ctx, *proxyPort)
 	if err != nil {
 		log.Fatal("failed to start HAproxy", zap.Error(err))
 	}
@@ -51,7 +56,7 @@ func main() {
 // expires, a new pair will automatically take its place.
 func Rotate(ctx context.Context, wg *sync.WaitGroup, ha *HAProxy) {
 	// Used to limit the number of running proxies. This is separate from wg because wg is unbounded.
-	c := make(chan bool, TOR_COUNT)
+	c := make(chan bool, *torCount)
 
 	for {
 		select {
@@ -96,7 +101,7 @@ func RunProxy(ctx context.Context, ha *HAProxy) {
 	// mark the ports as used
 	mapPorts(tor.port, privoxy.port)
 
-	_log := log.With(zap.Uint("tor", tor.port), zap.Uint("privoxy", privoxy.port))
+	_log := log.With(zap.Int("tor", tor.port), zap.Int("privoxy", privoxy.port))
 	_log.Info("proxy started")
 
 	// notify HAProxy of the new backend
@@ -115,7 +120,7 @@ func RunProxy(ctx context.Context, ha *HAProxy) {
 		// tor ended
 	case <-privoxy.Done():
 		// privoxy ended
-	case <-time.After(time.Duration(MAX_PROXY_TIME) * time.Second):
+	case <-time.After(time.Duration(*maxProxyTime) * time.Second):
 		// proxy lifetime expired
 	}
 

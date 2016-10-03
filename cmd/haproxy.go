@@ -49,8 +49,12 @@ frontend rotating_proxies
   option http_proxy
 
 backend privoxies
-  option http_proxy
   balance roundrobin
+  timeout http-keep-alive 3000
+
+  option forwardfor
+  option http-server-close
+  option http_proxy
   {{ range $port, $be := .Backends }}
   server privoxy-{{ $port }} 127.0.0.1:{{ $port }} check{{ end }}
 `
@@ -70,23 +74,23 @@ type HAProxy struct {
 	EnableStats bool
 	MaxConn     int
 	PidFile     string
-	Port        uint
-	StatsPort   uint
-	Backends    map[uint]struct{}
+	Port        int
+	StatsPort   int
+	Backends    map[int]struct{}
 }
 
-func NewHAProxy(ctx context.Context, port uint) (h *HAProxy, err error) {
+func NewHAProxy(ctx context.Context, port int) (h *HAProxy, err error) {
 	h = &HAProxy{
-		log:     log.With(zap.String("service", "haproxy"), zap.Uint("port", port)),
+		log:     log.With(zap.String("service", "haproxy"), zap.Int("port", port)),
 		dir:     "/tmp/torotator/haproxy",
 		delay:   time.NewTimer(2 * time.Second),
 		reloadQ: make(chan bool, 1),
 
-		EnableStats: true,
+		EnableStats: *statsPort > 0,
 		MaxConn:     256,
 		Port:        port,
-		StatsPort:   1936,
-		Backends:    make(map[uint]struct{}),
+		StatsPort:   *statsPort,
+		Backends:    make(map[int]struct{}),
 	}
 
 	t := template.New("haproxy")
@@ -237,7 +241,7 @@ func (h *HAProxy) Reload(ctx context.Context) (err error) {
 }
 
 // AddBackend tells HAProxy that a new Tor+Privoxy backend is available for use.
-func (h *HAProxy) AddBackend(ctx context.Context, port uint) {
+func (h *HAProxy) AddBackend(ctx context.Context, port int) {
 	h.mu.Lock()
 	h.Backends[port] = struct{}{}
 	h.mu.Unlock()
@@ -246,7 +250,7 @@ func (h *HAProxy) AddBackend(ctx context.Context, port uint) {
 }
 
 // RemoveBackend tells HAProxy that a Tor+Privoxy backend has expired and should be removed from the pool.
-func (h *HAProxy) RemoveBackend(ctx context.Context, port uint) {
+func (h *HAProxy) RemoveBackend(ctx context.Context, port int) {
 	h.mu.Lock()
 	delete(h.Backends, port)
 	h.mu.Unlock()

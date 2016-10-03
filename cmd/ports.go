@@ -7,17 +7,17 @@ import (
 )
 
 var (
-	ports    map[uint]uint
+	ports    map[int]int
 	careful  sync.Mutex
-	nextPort uint
+	nextPort int
 )
 
-func portPlz() uint {
+func portPlz() int {
 	careful.Lock()
 
 	if nextPort == 0 || nextPort >= 65535 {
-		nextPort = PORT_RANGE_START
-		log.Info("setting next port", zap.Uint("port", nextPort))
+		nextPort = *portRangeStart
+		log.Info("setting next port", zap.Int("port", nextPort))
 	}
 
 	// TODO check whether next port is in the port map already
@@ -29,14 +29,14 @@ func portPlz() uint {
 	return p
 }
 
-func mapPorts(tor, privoxy uint) {
+func mapPorts(tor, privoxy int) {
 	careful.Lock()
 	ports[tor] = privoxy
 	ports[privoxy] = tor
 	careful.Unlock()
 }
 
-func unmapPorts(tor, privoxy uint) {
+func unmapPorts(tor, privoxy int) {
 	careful.Lock()
 	delete(ports, tor)
 	delete(ports, privoxy)
