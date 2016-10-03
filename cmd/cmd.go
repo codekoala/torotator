@@ -11,6 +11,9 @@ import (
 	"github.com/uber-go/zap"
 )
 
+// Cmd is a wrapper around exec.Cmd. It allows for stdout and stderr to automatically be logged along with everything
+// else in the application. It also provides helpers to check if the process has finished and also to clean up the
+// process.
 type Cmd struct {
 	log    zap.Logger
 	cmd    *exec.Cmd
@@ -21,6 +24,7 @@ type Cmd struct {
 	transformLog func(string) (string, string, []zap.Field)
 }
 
+// NewCommand creates a new Cmd that is setup for common logging and state tracking.
 func NewCommand(ctx context.Context, log zap.Logger, name string, args ...string) (c *Cmd, err error) {
 	c = &Cmd{
 		log:  log,
@@ -43,7 +47,10 @@ func NewCommand(ctx context.Context, log zap.Logger, name string, args ...string
 
 	c.log = c.log.With(zap.Int("pid", c.cmd.Process.Pid))
 
+	// give the process a bit of time to settle
 	time.Sleep(250 * time.Millisecond)
+
+	// only ended processes have a non-nil ProcessState
 	if c.cmd.ProcessState != nil {
 		return nil, errors.New(c.cmd.ProcessState.String())
 	}
@@ -53,6 +60,7 @@ func NewCommand(ctx context.Context, log zap.Logger, name string, args ...string
 	return c, nil
 }
 
+// Pid returns the PID of the underlying command.
 func (c *Cmd) Pid() int {
 	if c.cmd == nil {
 		return -1
@@ -61,10 +69,12 @@ func (c *Cmd) Pid() int {
 	return c.cmd.Process.Pid
 }
 
+// Done returns a channel that signals when the process has ended.
 func (c *Cmd) Done() <-chan struct{} {
 	return c.done
 }
 
+// Wait processes output from the process and signals when the process has neded.
 func (c *Cmd) Wait() {
 	var (
 		line   string
@@ -73,13 +83,17 @@ func (c *Cmd) Wait() {
 		lf     func(string, ...zap.Field)
 	)
 
+	// receive data from both stdout and stderr
 	r := io.MultiReader(c.stdout, c.stderr)
+
+	// wait for output
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		// extract log level information from Tor messages
 		line = scanner.Text()
 		fields = fields[:]
 
+		// optionally process output from the command to make common logging more useful
 		if c.transformLog != nil {
 			level, line, fields = c.transformLog(line)
 		}
@@ -102,10 +116,14 @@ func (c *Cmd) Wait() {
 		c.log.Error("output error", zap.Error(err))
 	}
 
+	// wait for the underlying process to finish
 	c.cmd.Wait()
+
+	// signal that the command has ended
 	close(c.done)
 }
 
+// Close does its best to clean up the process.
 func (c *Cmd) Close() (err error) {
 	// presence of ProcessState means the process has already exited
 	if c.cmd.ProcessState != nil {

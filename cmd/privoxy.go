@@ -69,7 +69,7 @@ func NewPrivoxy(ctx context.Context, tor *Tor) (p *Privoxy, err error) {
 		p.pid = path.Join(p.dir, "privoxy.pid")
 		p.conf = path.Join(p.dir, "privoxy.conf")
 
-		if err = p.MakeDirs(); err != nil {
+		if err = p.WriteConfig(); err != nil {
 			p.log.Error("failed to write config", zap.Error(err))
 			continue
 		}
@@ -92,7 +92,7 @@ func NewPrivoxy(ctx context.Context, tor *Tor) (p *Privoxy, err error) {
 	return p, nil
 }
 
-func (p *Privoxy) MakeDirs() (err error) {
+func (p *Privoxy) WriteConfig() (err error) {
 	if err = os.MkdirAll(p.dir, 0755); err != nil {
 		return
 	}

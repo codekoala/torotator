@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/uber-go/zap"
@@ -19,10 +20,7 @@ const (
 	TEST_URL         = "http://echoip.com"
 )
 
-var (
-	log zap.Logger
-	//haproxy Service
-)
+var log zap.Logger
 
 func main() {
 	ports = make(map[uint]uint)
@@ -37,8 +35,10 @@ func main() {
 	if err != nil {
 		log.Fatal("failed to start HAproxy", zap.Error(err))
 	}
+
 	defer ha.Close()
 	go ha.Wait()
+	go ReloadOnHUP(ctx, ha)
 
 	Rotate(ctx, wg, ha)
 
@@ -47,6 +47,8 @@ func main() {
 	log.Info("done")
 }
 
+// Rotate manages pairs of Tor+Privoxy services. Only a specific number of pairs are permitted at one time. When a pair
+// expires, a new pair will automatically take its place.
 func Rotate(ctx context.Context, wg *sync.WaitGroup, ha *HAProxy) {
 	// Used to limit the number of running proxies. This is separate from wg because wg is unbounded.
 	c := make(chan bool, TOR_COUNT)
@@ -60,6 +62,8 @@ func Rotate(ctx context.Context, wg *sync.WaitGroup, ha *HAProxy) {
 
 		default:
 			c <- true
+
+			// time to create a new pair
 			wg.Add(1)
 			go func() {
 				RunProxy(ctx, ha)
@@ -71,6 +75,9 @@ func Rotate(ctx context.Context, wg *sync.WaitGroup, ha *HAProxy) {
 	}
 }
 
+// RunProxy creates a Tor node, followed by a Privoxy instance that handles proxying HTTP requests to the new Tor node.
+// The HAProxy instance is notified of the new pair so it can reconfigure itself to use the new pair. If either the Tor
+// node or the Privoxy service fail, the pair is invalidated and removed from HAProxy.
 func RunProxy(ctx context.Context, ha *HAProxy) {
 	// create a new tor/privoxy pair
 	tor, err := NewTor(ctx)
@@ -92,6 +99,7 @@ func RunProxy(ctx context.Context, ha *HAProxy) {
 	_log := log.With(zap.Uint("tor", tor.port), zap.Uint("privoxy", privoxy.port))
 	_log.Info("proxy started")
 
+	// notify HAProxy of the new backend
 	ha.AddBackend(ctx, privoxy.port)
 
 	// let the processes run until they terminate
@@ -111,6 +119,7 @@ func RunProxy(ctx context.Context, ha *HAProxy) {
 		// proxy lifetime expired
 	}
 
+	// tell HAProxy to remove this backend
 	ha.RemoveBackend(ctx, privoxy.port)
 
 	// clean up after ourselves
@@ -118,10 +127,12 @@ func RunProxy(ctx context.Context, ha *HAProxy) {
 	privoxy.Close()
 	tor.Close()
 
+	// release the port for later use
 	unmapPorts(tor.port, privoxy.port)
 	_log.Info("proxy terminated")
 }
 
+// SignalContext creates a new context that will be canceled when the program receives certain termination signals.
 func SignalContext() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -135,4 +146,17 @@ func SignalContext() context.Context {
 	}()
 
 	return ctx
+}
+
+// ReloadOnHUP waits to receive a SIGHUP signal, at which point HAProxy will reload its configuration.
+func ReloadOnHUP(ctx context.Context, ha *HAProxy) {
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+
+	go func() {
+		for _ = range hup {
+			log.Info("got sighup; reloading config")
+			ha.Reload(ctx)
+		}
+	}()
 }

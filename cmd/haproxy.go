@@ -24,9 +24,10 @@ defaults
   option  dontlognull
   retries 3
   timeout connect 5s
-  timeout client 30s
-  timeout server 30s
+  timeout client  30s
+  timeout server  30s
 
+{{ if .EnableStats }}
 listen stats
   bind            :{{.StatsPort}}
   mode            http
@@ -40,6 +41,7 @@ listen stats
   stats refresh 30s
   stats show-node
   stats uri /haproxy?stats
+{{ end }}
 
 frontend rotating_proxies
   bind *:{{.Port}}
@@ -53,6 +55,7 @@ backend privoxies
   server privoxy-{{ $port }} 127.0.0.1:{{ $port }} check{{ end }}
 `
 
+// HAProxy helps manage an instance of HAProxy.
 type HAProxy struct {
 	log zap.Logger
 	cmd *Cmd
@@ -64,11 +67,12 @@ type HAProxy struct {
 	delay    *time.Timer
 	reloadQ  chan bool
 
-	MaxConn   int
-	PidFile   string
-	Port      uint
-	StatsPort uint
-	Backends  map[uint]struct{}
+	EnableStats bool
+	MaxConn     int
+	PidFile     string
+	Port        uint
+	StatsPort   uint
+	Backends    map[uint]struct{}
 }
 
 func NewHAProxy(ctx context.Context, port uint) (h *HAProxy, err error) {
@@ -78,10 +82,11 @@ func NewHAProxy(ctx context.Context, port uint) (h *HAProxy, err error) {
 		delay:   time.NewTimer(2 * time.Second),
 		reloadQ: make(chan bool, 1),
 
-		MaxConn:   256,
-		Port:      port,
-		StatsPort: 1936,
-		Backends:  make(map[uint]struct{}),
+		EnableStats: true,
+		MaxConn:     256,
+		Port:        port,
+		StatsPort:   1936,
+		Backends:    make(map[uint]struct{}),
 	}
 
 	t := template.New("haproxy")
@@ -93,7 +98,7 @@ func NewHAProxy(ctx context.Context, port uint) (h *HAProxy, err error) {
 	h.conf = path.Join(h.dir, "haproxy.cfg")
 	h.PidFile = path.Join(h.dir, "haproxy.pid")
 
-	if err = h.MakeDirs(ctx); err != nil {
+	if err = h.WriteConfig(ctx, false); err != nil {
 		h.log.Error("failed to write config", zap.Error(err))
 		return nil, err
 	}
@@ -109,18 +114,17 @@ func NewHAProxy(ctx context.Context, port uint) (h *HAProxy, err error) {
 	return h, nil
 }
 
-func (h *HAProxy) MakeDirs(ctx context.Context) (err error) {
+// MakeDirs attempts to create the directory where HAProxy-related files will reside.
+func (h *HAProxy) MakeDirs() (err error) {
 	if err = os.MkdirAll(h.dir, 0755); err != nil {
-		return
-	}
-
-	if err = h.WriteConfig(ctx, false); err != nil {
 		return
 	}
 
 	return nil
 }
 
+// HAProxyLogger processes each message received from HAProxy's stdout and stderr. It attempt to categorize each
+// message with the correct logging level based on the content of the log line.
 func (h *HAProxy) HAProxyLogger(line string) (level, msg string, fields []zap.Field) {
 	line = line[1:]
 
@@ -142,8 +146,14 @@ func (h *HAProxy) HAProxyLogger(line string) (level, msg string, fields []zap.Fi
 	return
 }
 
+// WriteConfig persists the current HAProxy configuration to disk. This may also signal the current instance of HAProxy
+// to reload the configuration after it's written to disk.
 func (h *HAProxy) WriteConfig(ctx context.Context, reload bool) (err error) {
 	var f *os.File
+
+	if err = h.MakeDirs(); err != nil {
+		return
+	}
 
 	if f, err = os.OpenFile(h.conf, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644); err != nil {
 		return
@@ -169,6 +179,9 @@ func (h *HAProxy) WriteConfig(ctx context.Context, reload bool) (err error) {
 	return nil
 }
 
+// Reload instructs the current instance of HAProxy to finish serving requests, after which a new instance will replace
+// it using the newest configuration. This function attempts to throttle requests to reload HAProxy, as many
+// Tor+Privoxy pairs may expire at roughly the same time.
 func (h *HAProxy) Reload(ctx context.Context) (err error) {
 	if !h.delay.Stop() {
 		select {
@@ -188,8 +201,8 @@ func (h *HAProxy) Reload(ctx context.Context) (err error) {
 		return
 	}
 
+	// if we get this far, empty queue when we leave this function. This indicates that a reload may be re-queued.
 	defer func() {
-		// empty queue
 		<-h.reloadQ
 	}()
 
@@ -203,6 +216,10 @@ func (h *HAProxy) Reload(ctx context.Context) (err error) {
 		return
 	}
 
+	prev := h.cmd
+
+	// start a new instance of HAProxy that should allow the current instance to finish up nicely before the new
+	// instance takes over
 	h.cmd, err = NewCommand(ctx, h.log, "haproxy",
 		"-f", h.conf,
 		"-sf", fmt.Sprintf("%d", h.cmd.Pid()))
@@ -211,9 +228,15 @@ func (h *HAProxy) Reload(ctx context.Context) (err error) {
 		return
 	}
 
+	// try to not leave zombies
+	if err = prev.Close(); err != nil {
+		h.log.Warn("failed to clean up previous instance", zap.Error(err))
+	}
+
 	return nil
 }
 
+// AddBackend tells HAProxy that a new Tor+Privoxy backend is available for use.
 func (h *HAProxy) AddBackend(ctx context.Context, port uint) {
 	h.mu.Lock()
 	h.Backends[port] = struct{}{}
@@ -222,6 +245,7 @@ func (h *HAProxy) AddBackend(ctx context.Context, port uint) {
 	h.WriteConfig(ctx, true)
 }
 
+// RemoveBackend tells HAProxy that a Tor+Privoxy backend has expired and should be removed from the pool.
 func (h *HAProxy) RemoveBackend(ctx context.Context, port uint) {
 	h.mu.Lock()
 	delete(h.Backends, port)
