@@ -13,27 +13,38 @@ import (
 	"github.com/uber-go/zap"
 )
 
-const VERSION = "0.1.0"
-
 var (
+	VERSION = "dev"
+
 	proxyPort      = flag.Int("p", 8080, "HTTP proxy port")
 	torCount       = flag.Int("c", 3, "number of Tor nodes to use")
 	portRangeStart = flag.Int("s", 30000, "starting port for proxy usage")
 	maxProxyTime   = flag.Int("m", 900, "maximum time (in seconds) a proxy should remain online before being recycled")
 	circuitTime    = flag.Int("t", 120, "maximum time (in seconds) a Tor node should be online before recircuiting")
 	statsPort      = flag.Int("stats", 0, "serve HAProxy stats on this port")
+	debug          = flag.Bool("debug", false, "enable debug mode")
+	version        = flag.Bool("v", false, "show version and exit")
 
 	log zap.Logger
 )
 
-func main() {
+func init() {
 	flag.Parse()
 
-	ports = make(map[int]int)
-
 	log = zap.New(zap.NewJSONEncoder(zap.RFC3339Formatter("time")))
-	log.Info("rotating tor proxy", zap.String("version", VERSION))
+	if *debug {
+		log.SetLevel(zap.DebugLevel)
+	}
 
+	log.Info("rotating tor proxy", zap.String("version", VERSION))
+	if *version {
+		os.Exit(0)
+	}
+
+	ports = make(map[int]int)
+}
+
+func main() {
 	FindDependencies()
 
 	ctx := SignalContext()
