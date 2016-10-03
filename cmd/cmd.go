@@ -53,6 +53,14 @@ func NewCommand(ctx context.Context, log zap.Logger, name string, args ...string
 	return c, nil
 }
 
+func (c *Cmd) Pid() int {
+	if c.cmd == nil {
+		return -1
+	}
+
+	return c.cmd.Process.Pid
+}
+
 func (c *Cmd) Done() <-chan struct{} {
 	return c.done
 }

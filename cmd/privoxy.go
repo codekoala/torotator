@@ -31,7 +31,7 @@ enforce-blocks 0
 buffer-limit 4096
 enable-proxy-authentication-forwarding 0
 forwarded-connect-retries  0
-accept-intercepted-requests 0
+accept-intercepted-requests 1
 allow-cgi-request-crunching 0
 split-large-forms 0
 keep-alive-timeout 5

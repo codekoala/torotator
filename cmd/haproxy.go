@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -15,17 +16,16 @@ import (
 const HAPROXY_TPL = `
 global
   maxconn {{.MaxConn}}
-  pidfile {{.PidFile}}
 
 defaults
   mode http
+  maxconn 1024
   option  httplog
   option  dontlognull
   retries 3
   timeout connect 5s
   timeout client 30s
   timeout server 30s
-  timeout queue 30s
 
 listen stats
   bind            :{{.StatsPort}}
@@ -203,10 +203,9 @@ func (h *HAProxy) Reload(ctx context.Context) (err error) {
 		return
 	}
 
-	if err = h.cmd.Close(); err != nil {
-		h.log.Warn("error killing previous instance", zap.Error(err))
-	}
-	h.cmd, err = NewCommand(ctx, h.log, "haproxy", "-f", h.conf)
+	h.cmd, err = NewCommand(ctx, h.log, "haproxy",
+		"-f", h.conf,
+		"-sf", fmt.Sprintf("%d", h.cmd.Pid()))
 	if err != nil {
 		h.log.Error("failed to start new instance", zap.Error(err))
 		return
