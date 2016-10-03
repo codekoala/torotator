@@ -222,11 +222,14 @@ func (h *HAProxy) Reload(ctx context.Context) (err error) {
 
 	prev := h.cmd
 
+	args := []string{"-f", h.conf}
+	if prev.cmd != nil {
+		args = append(args, "-sf", fmt.Sprintf("%d", prev.Pid()))
+	}
+
 	// start a new instance of HAProxy that should allow the current instance to finish up nicely before the new
 	// instance takes over
-	h.cmd, err = NewCommand(ctx, h.log, "haproxy",
-		"-f", h.conf,
-		"-sf", fmt.Sprintf("%d", h.cmd.Pid()))
+	h.cmd, err = NewCommand(ctx, h.log, "haproxy", args...)
 	if err != nil {
 		h.log.Error("failed to start new instance", zap.Error(err))
 		return

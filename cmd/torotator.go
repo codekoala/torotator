@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"os"
+	"os/exec"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -33,6 +34,8 @@ func main() {
 	log = zap.New(zap.NewJSONEncoder(zap.RFC3339Formatter("time")))
 	log.Info("rotating tor proxy", zap.String("version", VERSION))
 
+	FindDependencies()
+
 	ctx := SignalContext()
 	wg := new(sync.WaitGroup)
 
@@ -50,6 +53,22 @@ func main() {
 	// clean up
 	wg.Wait()
 	log.Info("done")
+}
+
+func FindDependencies() {
+	var (
+		found string
+		err   error
+	)
+
+	deps := []string{"haproxy", "privoxy", "tor"}
+	for _, dep := range deps {
+		if found, err = exec.LookPath(dep); err != nil {
+			log.Fatal("missing required program", zap.String("name", dep))
+		} else {
+			log.Debug("found required program", zap.String("name", dep), zap.String("path", found))
+		}
+	}
 }
 
 // Rotate manages pairs of Tor+Privoxy services. Only a specific number of pairs are permitted at one time. When a pair
