@@ -11,7 +11,7 @@ import (
 	"github.com/uber-go/zap"
 )
 
-const CFG_TPL = `
+const PRIVOXY_TPL = `
 user-manual /usr/share/doc/privoxy/user-manual/
 confdir /etc/privoxy
 logdir %s
@@ -31,7 +31,7 @@ enforce-blocks 0
 buffer-limit 4096
 enable-proxy-authentication-forwarding 0
 forwarded-connect-retries  0
-accept-intercepted-requests 0
+accept-intercepted-requests 1
 allow-cgi-request-crunching 0
 split-large-forms 0
 keep-alive-timeout 5
@@ -43,7 +43,7 @@ type Privoxy struct {
 	log  zap.Logger
 	tor  *Tor
 	cmd  *Cmd
-	port uint
+	port int
 	dir  string
 	pid  string
 	conf string
@@ -62,14 +62,14 @@ func NewPrivoxy(ctx context.Context, tor *Tor) (p *Privoxy, err error) {
 
 		p.port = portPlz()
 		p.log = log.With(zap.String("service", "privoxy"),
-			zap.Uint("port", p.port),
-			zap.Uint("tor", tor.port))
+			zap.Int("port", p.port),
+			zap.Int("tor", tor.port))
 
-		p.dir = fmt.Sprintf("/tmp/rotating-tor-proxy/privoxy-%d", p.port)
+		p.dir = fmt.Sprintf("/tmp/torotator/privoxy-%d", p.port)
 		p.pid = path.Join(p.dir, "privoxy.pid")
 		p.conf = path.Join(p.dir, "privoxy.conf")
 
-		if err = p.MakeDirs(); err != nil {
+		if err = p.WriteConfig(); err != nil {
 			p.log.Error("failed to write config", zap.Error(err))
 			continue
 		}
@@ -92,7 +92,7 @@ func NewPrivoxy(ctx context.Context, tor *Tor) (p *Privoxy, err error) {
 	return p, nil
 }
 
-func (p *Privoxy) MakeDirs() (err error) {
+func (p *Privoxy) WriteConfig() (err error) {
 	if err = os.MkdirAll(p.dir, 0755); err != nil {
 		return
 	}
@@ -103,7 +103,7 @@ func (p *Privoxy) MakeDirs() (err error) {
 	}
 	defer f.Close()
 
-	f.WriteString(fmt.Sprintf(CFG_TPL, p.dir, p.port, p.tor.port))
+	f.WriteString(fmt.Sprintf(PRIVOXY_TPL, p.dir, p.port, p.tor.port))
 
 	return nil
 }
@@ -137,7 +137,7 @@ func (p *Privoxy) Close() (err error) {
 
 	defer func() {
 		if err = os.RemoveAll(p.dir); err != nil {
-			p.log.Error("failed to data directory", zap.String("path", p.conf), zap.Error(err))
+			p.log.Error("failed to data directory", zap.String("path", p.dir), zap.Error(err))
 		}
 	}()
 

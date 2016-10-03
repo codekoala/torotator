@@ -14,7 +14,7 @@ import (
 type Tor struct {
 	log  zap.Logger
 	cmd  *Cmd
-	port uint
+	port int
 	dir  string
 	pid  string
 }
@@ -31,8 +31,8 @@ func NewTor(ctx context.Context) (t *Tor, err error) {
 		}
 
 		t.port = portPlz()
-		t.log = log.With(zap.String("service", "tor"), zap.Uint("port", t.port))
-		t.dir = fmt.Sprintf("/tmp/rotating-tor-proxy/tor-%d", t.port)
+		t.log = log.With(zap.String("service", "tor"), zap.Int("port", t.port))
+		t.dir = fmt.Sprintf("/tmp/torotator/tor-%d", t.port)
 		t.pid = path.Join(t.dir, "tor.pid")
 
 		t.MakeDirs()
@@ -40,7 +40,7 @@ func NewTor(ctx context.Context) (t *Tor, err error) {
 		t.cmd, err = NewCommand(ctx, t.log, "tor",
 			"--allow-missing-torrc",
 			"--SocksPort", fmt.Sprintf("%d", t.port),
-			"--NewCircuitPeriod", "120",
+			"--NewCircuitPeriod", fmt.Sprintf("%d", *circuitTime),
 			"--DataDirectory", t.dir,
 			"--PidFile", t.pid,
 			"--Log", "warn stdout")
