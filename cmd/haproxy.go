@@ -5,34 +5,35 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"text/template"
+	"time"
 
 	"github.com/uber-go/zap"
 )
 
 const HAPROXY_TPL = `
 global
-  maxconn 1024
+  maxconn {{.MaxConn}}
   pidfile {{.PidFile}}
 
 defaults
   mode http
-  maxconn 1024
   option  httplog
   option  dontlognull
   retries 3
   timeout connect 5s
-  timeout client 60s
-  timeout server 60s
+  timeout client 30s
+  timeout server 30s
+  timeout queue 30s
 
-
-listen stats *:{{.StatsPort}}
+listen stats
+  bind            :{{.StatsPort}}
   mode            http
-  log             global
   maxconn 10
-  clitimeout      100s
-  srvtimeout      100s
-  contimeout      100s
+  timeout client  100s
+  timeout server  100s
+  timeout connect 100s
   timeout queue   100s
   stats enable
   stats hide-version
@@ -40,28 +41,30 @@ listen stats *:{{.StatsPort}}
   stats show-node
   stats uri /haproxy?stats
 
-
 frontend rotating_proxies
   bind *:{{.Port}}
-  default_backend tor
+  default_backend privoxies
   option http_proxy
 
-backend tor
+backend privoxies
   option http_proxy
-  balance leastconn # http://cbonte.github.io/haproxy-dconv/configuration-1.5.html#balance
-
+  balance roundrobin
   {{ range $port, $be := .Backends }}
-  server privoxy-{{ $port }} 127.0.0.1:{{ $port }}
-  {{ end }}
+  server privoxy-{{ $port }} 127.0.0.1:{{ $port }} check{{ end }}
 `
 
 type HAProxy struct {
 	log zap.Logger
 	cmd *Cmd
 
-	dir  string
-	conf string
+	dir      string
+	conf     string
+	template *template.Template
+	mu       sync.Mutex
+	delay    *time.Timer
+	reloadQ  chan bool
 
+	MaxConn   int
 	PidFile   string
 	Port      uint
 	StatsPort uint
@@ -70,18 +73,27 @@ type HAProxy struct {
 
 func NewHAProxy(ctx context.Context, port uint) (h *HAProxy, err error) {
 	h = &HAProxy{
-		log: log.With(zap.String("service", "haproxy"), zap.Uint("port", port)),
-		dir: "/tmp/torotator/haproxy",
+		log:     log.With(zap.String("service", "haproxy"), zap.Uint("port", port)),
+		dir:     "/tmp/torotator/haproxy",
+		delay:   time.NewTimer(2 * time.Second),
+		reloadQ: make(chan bool, 1),
 
+		MaxConn:   256,
 		Port:      port,
 		StatsPort: 1936,
 		Backends:  make(map[uint]struct{}),
 	}
 
+	t := template.New("haproxy")
+	if h.template, err = t.Parse(HAPROXY_TPL); err != nil {
+		h.log.Error("unable to parse template", zap.Error(err))
+		return
+	}
+
 	h.conf = path.Join(h.dir, "haproxy.cfg")
 	h.PidFile = path.Join(h.dir, "haproxy.pid")
 
-	if err = h.MakeDirs(); err != nil {
+	if err = h.MakeDirs(ctx); err != nil {
 		h.log.Error("failed to write config", zap.Error(err))
 		return nil, err
 	}
@@ -97,12 +109,12 @@ func NewHAProxy(ctx context.Context, port uint) (h *HAProxy, err error) {
 	return h, nil
 }
 
-func (h *HAProxy) MakeDirs() (err error) {
+func (h *HAProxy) MakeDirs(ctx context.Context) (err error) {
 	if err = os.MkdirAll(h.dir, 0755); err != nil {
 		return
 	}
 
-	if err = h.WriteConfig(); err != nil {
+	if err = h.WriteConfig(ctx, false); err != nil {
 		return
 	}
 
@@ -130,7 +142,7 @@ func (h *HAProxy) HAProxyLogger(line string) (level, msg string, fields []zap.Fi
 	return
 }
 
-func (h *HAProxy) WriteConfig() (err error) {
+func (h *HAProxy) WriteConfig(ctx context.Context, reload bool) (err error) {
 	var f *os.File
 
 	if f, err = os.OpenFile(h.conf, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644); err != nil {
@@ -138,30 +150,85 @@ func (h *HAProxy) WriteConfig() (err error) {
 	}
 	defer f.Close()
 
-	t := template.New("haproxy")
-	if t, err = t.Parse(HAPROXY_TPL); err != nil {
-		h.log.Error("unable to parse template", zap.Error(err))
+	h.mu.Lock()
+	err = h.template.Execute(f, h)
+	h.mu.Unlock()
+
+	if err != nil {
+		h.log.Error("unable to render template", zap.Error(err))
 		return
 	}
 
-	if err = t.Execute(f, h); err != nil {
-		h.log.Error("unable to render template", zap.Error(err))
+	if reload {
+		if err = h.Reload(ctx); err != nil {
+			h.log.Error("failed to gracefully reload", zap.Error(err))
+			return
+		}
+	}
+
+	return nil
+}
+
+func (h *HAProxy) Reload(ctx context.Context) (err error) {
+	if !h.delay.Stop() {
+		select {
+		case <-h.delay.C:
+			// drain channel, jic
+		default:
+		}
+	}
+
+	// delay reload for 2 more seconds
+	h.delay.Reset(2 * time.Second)
+	select {
+	case h.reloadQ <- true:
+		h.log.Debug("reload queued")
+	default:
+		h.log.Debug("reload already queued")
+		return
+	}
+
+	defer func() {
+		// empty queue
+		<-h.reloadQ
+	}()
+
+	// wait for the timer to expire
+	select {
+	case <-h.delay.C:
+		h.delay.Stop()
+
+	case <-time.After(10 * time.Second):
+		// safety net in case we get into a weird state
+		return
+	}
+
+	if err = h.cmd.Close(); err != nil {
+		h.log.Warn("error killing previous instance", zap.Error(err))
+	}
+	h.cmd, err = NewCommand(ctx, h.log, "haproxy", "-f", h.conf)
+	if err != nil {
+		h.log.Error("failed to start new instance", zap.Error(err))
 		return
 	}
 
 	return nil
 }
 
-func (h *HAProxy) AddBackend(port uint) {
+func (h *HAProxy) AddBackend(ctx context.Context, port uint) {
+	h.mu.Lock()
 	h.Backends[port] = struct{}{}
+	h.mu.Unlock()
 
-	h.WriteConfig()
+	h.WriteConfig(ctx, true)
 }
 
-func (h *HAProxy) RemoveBackend(port uint) {
+func (h *HAProxy) RemoveBackend(ctx context.Context, port uint) {
+	h.mu.Lock()
 	delete(h.Backends, port)
+	h.mu.Unlock()
 
-	h.WriteConfig()
+	h.WriteConfig(ctx, true)
 }
 
 func (h *HAProxy) Done() <-chan struct{} {
@@ -173,7 +240,7 @@ func (h *HAProxy) Wait() {
 }
 
 func (h *HAProxy) Close() (err error) {
-	if h == nil {
+	if h == nil || h.cmd == nil {
 		return nil
 	}
 

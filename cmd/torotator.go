@@ -37,6 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatal("failed to start HAproxy", zap.Error(err))
 	}
+	defer ha.Close()
 	go ha.Wait()
 
 	Rotate(ctx, wg, ha)
@@ -91,7 +92,7 @@ func RunProxy(ctx context.Context, ha *HAProxy) {
 	_log := log.With(zap.Uint("tor", tor.port), zap.Uint("privoxy", privoxy.port))
 	_log.Info("proxy started")
 
-	ha.AddBackend(privoxy.port)
+	ha.AddBackend(ctx, privoxy.port)
 
 	// let the processes run until they terminate
 	go tor.Wait()
@@ -109,6 +110,8 @@ func RunProxy(ctx context.Context, ha *HAProxy) {
 	case <-time.After(time.Duration(MAX_PROXY_TIME) * time.Second):
 		// proxy lifetime expired
 	}
+
+	ha.RemoveBackend(ctx, privoxy.port)
 
 	// clean up after ourselves
 	_log.Info("stopping proxy")
