@@ -1,0 +1,8 @@
+# Version 0.2.0 - 2016.12.27
+
+This version removes the HTTP proxy piece about torotator and simply load
+balances and rotates SOCKS5 proxies directly. Privoxy has been removed.
+
+If an HTTP proxy is required, it's far easier to create one instance of privoxy
+or whatever proxy you prefer in front of the load balanced, rotating SOCKS5
+proxies provided by torotator.
