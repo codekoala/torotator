@@ -7,7 +7,6 @@ import (
 )
 
 var (
-	ports    map[int]int
 	careful  sync.Mutex
 	nextPort int
 )
@@ -27,18 +26,4 @@ func portPlz() int {
 	careful.Unlock()
 
 	return p
-}
-
-func mapPorts(tor, privoxy int) {
-	careful.Lock()
-	ports[tor] = privoxy
-	ports[privoxy] = tor
-	careful.Unlock()
-}
-
-func unmapPorts(tor, privoxy int) {
-	careful.Lock()
-	delete(ports, tor)
-	delete(ports, privoxy)
-	careful.Unlock()
 }

@@ -43,20 +43,14 @@ listen stats
   stats uri /haproxy?stats
 {{ end }}
 
-frontend rotating_proxies
+listen circuits
   bind *:{{.Port}}
-  default_backend privoxies
-  option http_proxy
-
-backend privoxies
+  mode tcp
+  option tcplog
   balance roundrobin
-  timeout http-keep-alive 3000
 
-  option forwardfor
-  option http-server-close
-  option http_proxy
   {{ range $port, $be := .Backends }}
-  server privoxy-{{ $port }} 127.0.0.1:{{ $port }} check{{ end }}
+  server tor-{{ $port }} 127.0.0.1:{{ $port }} check maxconn 32{{ end }}
 `
 
 // HAProxy helps manage an instance of HAProxy.
@@ -223,7 +217,7 @@ func (h *HAProxy) Reload(ctx context.Context) (err error) {
 	prev := h.cmd
 
 	args := []string{"-f", h.conf}
-	if prev.cmd != nil {
+	if prev != nil && prev.cmd != nil {
 		args = append(args, "-sf", fmt.Sprintf("%d", prev.Pid()))
 	}
 

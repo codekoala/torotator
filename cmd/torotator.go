@@ -40,8 +40,6 @@ func init() {
 	if *version {
 		os.Exit(0)
 	}
-
-	ports = make(map[int]int)
 }
 
 func main() {
@@ -72,7 +70,7 @@ func FindDependencies() {
 		err   error
 	)
 
-	deps := []string{"haproxy", "privoxy", "tor"}
+	deps := []string{"haproxy", "tor"}
 	for _, dep := range deps {
 		if found, err = exec.LookPath(dep); err != nil {
 			log.Fatal("missing required program", zap.String("name", dep))
@@ -110,36 +108,23 @@ func Rotate(ctx context.Context, wg *sync.WaitGroup, ha *HAProxy) {
 	}
 }
 
-// RunProxy creates a Tor node, followed by a Privoxy instance that handles proxying HTTP requests to the new Tor node.
-// The HAProxy instance is notified of the new pair so it can reconfigure itself to use the new pair. If either the Tor
-// node or the Privoxy service fail, the pair is invalidated and removed from HAProxy.
+// RunProxy creates a Tor node and notifies HAProxy so it can reconfigure itself to use the new pair. If the Tor node
+// fails, the circuit is invalidated and removed from HAProxy.
 func RunProxy(ctx context.Context, ha *HAProxy) {
-	// create a new tor/privoxy pair
 	tor, err := NewTor(ctx)
 	if err != nil {
 		tor.Close()
 		return
 	}
 
-	privoxy, err := NewPrivoxy(ctx, tor)
-	if err != nil {
-		tor.Close()
-		privoxy.Close()
-		return
-	}
-
-	// mark the ports as used
-	mapPorts(tor.port, privoxy.port)
-
-	_log := log.With(zap.Int("tor", tor.port), zap.Int("privoxy", privoxy.port))
+	_log := log.With(zap.Int("tor", tor.port))
 	_log.Info("proxy started")
 
 	// notify HAProxy of the new backend
-	ha.AddBackend(ctx, privoxy.port)
+	ha.AddBackend(ctx, tor.port)
 
 	// let the processes run until they terminate
 	go tor.Wait()
-	go privoxy.Wait()
 
 	// TODO periodically check that this proxy is still functional
 	// wait for any of the following events to occur
@@ -148,22 +133,17 @@ func RunProxy(ctx context.Context, ha *HAProxy) {
 		// application terminating
 	case <-tor.Done():
 		// tor ended
-	case <-privoxy.Done():
-		// privoxy ended
 	case <-time.After(time.Duration(*maxProxyTime) * time.Second):
 		// proxy lifetime expired
 	}
 
 	// tell HAProxy to remove this backend
-	ha.RemoveBackend(ctx, privoxy.port)
+	ha.RemoveBackend(ctx, tor.port)
 
 	// clean up after ourselves
 	_log.Info("stopping proxy")
-	privoxy.Close()
 	tor.Close()
 
-	// release the port for later use
-	unmapPorts(tor.port, privoxy.port)
 	_log.Info("proxy terminated")
 }
 
