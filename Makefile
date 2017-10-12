@@ -9,7 +9,7 @@ docker:
 	docker tag $(IMG):latest $(IMG):$(VERSION)
 
 run:
-	docker run -it --rm -p 8080:8080 -u 1000 $(IMG)
+	docker run -it --rm -p 8080:8080 $(IMG)
 
 upload:
 	docker push $(IMG)

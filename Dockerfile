@@ -12,4 +12,5 @@ RUN apt-get update && \
 
 ADD torotator /usr/local/bin/torotator
 
+USER 1000:100
 ENTRYPOINT ["/usr/local/bin/torotator"]
