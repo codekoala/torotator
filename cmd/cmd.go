@@ -8,24 +8,25 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/uber-go/zap"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // Cmd is a wrapper around exec.Cmd. It allows for stdout and stderr to automatically be logged along with everything
 // else in the application. It also provides helpers to check if the process has finished and also to clean up the
 // process.
 type Cmd struct {
-	log    zap.Logger
+	log    *zap.Logger
 	cmd    *exec.Cmd
 	stdout io.ReadCloser
 	stderr io.ReadCloser
 	done   chan struct{}
 
-	transformLog func(string) (string, string, []zap.Field)
+	transformLog func(string) (string, string, []zapcore.Field)
 }
 
 // NewCommand creates a new Cmd that is setup for common logging and state tracking.
-func NewCommand(ctx context.Context, log zap.Logger, name string, args ...string) (c *Cmd, err error) {
+func NewCommand(ctx context.Context, log *zap.Logger, name string, args ...string) (c *Cmd, err error) {
 	c = &Cmd{
 		log:  log,
 		cmd:  exec.CommandContext(ctx, name, args...),
@@ -78,9 +79,9 @@ func (c *Cmd) Done() <-chan struct{} {
 func (c *Cmd) Wait() {
 	var (
 		line   string
-		fields []zap.Field
+		fields []zapcore.Field
 		level  string
-		lf     func(string, ...zap.Field)
+		lf     func(string, ...zapcore.Field)
 	)
 
 	// receive data from both stdout and stderr

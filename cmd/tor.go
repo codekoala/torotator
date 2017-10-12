@@ -8,11 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/uber-go/zap"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type Tor struct {
-	log  zap.Logger
+	log  *zap.Logger
 	cmd  *Cmd
 	port int
 	dir  string
@@ -66,7 +67,7 @@ func (t *Tor) MakeDirs() (err error) {
 	return nil
 }
 
-func (t *Tor) TorLogger(line string) (level, msg string, fields []zap.Field) {
+func (t *Tor) TorLogger(line string) (level, msg string, fields []zapcore.Field) {
 	line = line[21:]
 	lvlPos := strings.Index(line, "]")
 	level = line[:lvlPos]

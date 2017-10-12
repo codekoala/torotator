@@ -1,8 +1,16 @@
-hash: 147c083b6dcda30825503ca263be8fd6b522d08f881c1ad22319c34053e18980
-updated: 2016-09-28T01:13:43.513088674-06:00
+hash: e1a47a4aa6fcec6c9ec388bb4c53b3745505bd98a28b6a5b1d46a2ee12b19fb1
+updated: 2017-10-12T12:56:54.452953233-04:00
 imports:
-- name: github.com/uber-go/atomic
-  version: 0c9e689d64f004564b79d9a663634756df322902
-- name: github.com/uber-go/zap
-  version: fc9fbdfe46f6dc6a78028f22a2fb086dd13182fd
+- name: go.uber.org/atomic
+  version: 4e336646b2ef9fc6e47be8e21594178f98e5ebcf
+- name: go.uber.org/multierr
+  version: 3c4937480c32f4c13a875a1829af76c98ca3d40a
+- name: go.uber.org/zap
+  version: 35aad584952c3e7020db7b839f6b102de6271f89
+  subpackages:
+  - buffer
+  - internal/bufferpool
+  - internal/color
+  - internal/exit
+  - zapcore
 testImports: []

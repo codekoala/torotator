@@ -10,7 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/uber-go/zap"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var (
@@ -25,15 +26,24 @@ var (
 	debug          = flag.Bool("debug", false, "enable debug mode")
 	version        = flag.Bool("v", false, "show version and exit")
 
-	log zap.Logger
+	log *zap.Logger
 )
 
 func init() {
+	var err error
+
 	flag.Parse()
 
-	log = zap.New(zap.NewJSONEncoder(zap.RFC3339Formatter("time")))
+	cfg := zap.NewProductionConfig()
+	cfg.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	cfg.EncoderConfig.EncodeDuration = zapcore.StringDurationEncoder
+
 	if *debug {
-		log.SetLevel(zap.DebugLevel)
+		cfg.Development = true
+	}
+
+	if log, err = cfg.Build(); err != nil {
+		panic(err)
 	}
 
 	log.Info("rotating tor proxy", zap.String("version", VERSION))

@@ -3,7 +3,7 @@ package main
 import (
 	"sync"
 
-	"github.com/uber-go/zap"
+	"go.uber.org/zap"
 )
 
 var (

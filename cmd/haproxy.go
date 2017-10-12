@@ -10,7 +10,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/uber-go/zap"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 const HAPROXY_TPL = `
@@ -55,7 +56,7 @@ listen circuits
 
 // HAProxy helps manage an instance of HAProxy.
 type HAProxy struct {
-	log zap.Logger
+	log *zap.Logger
 	cmd *Cmd
 
 	dir      string
@@ -123,7 +124,7 @@ func (h *HAProxy) MakeDirs() (err error) {
 
 // HAProxyLogger processes each message received from HAProxy's stdout and stderr. It attempt to categorize each
 // message with the correct logging level based on the content of the log line.
-func (h *HAProxy) HAProxyLogger(line string) (level, msg string, fields []zap.Field) {
+func (h *HAProxy) HAProxyLogger(line string) (level, msg string, fields []zapcore.Field) {
 	line = line[1:]
 
 	lvlPos := strings.Index(line, "]")

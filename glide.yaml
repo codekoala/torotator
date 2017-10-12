@@ -1,3 +1,4 @@
 package: github.com/codekoala/torotator
 import:
-- package: github.com/uber-go/zap
+- package: go.uber.org/zap
+  version: ^1.7.1
